@@ -2,24 +2,22 @@
 
 A hardware monitor for Linux. Temperatures, fan speeds, clocks, voltages,
 power draw and load for every device in the machine, each with its minimum and
-maximum since the app started. If you've used HWMonitor on Windows you'll feel
-at home.
+maximum since the app started. Very similar to HWmonitor for windows.
 
-It also does manual fan control and has a stress test with live graphs,
-because once you're watching temperatures you sooner or later want to push
-them and see what happens.
+It also does manual fan control and has a stress test with live graphs
 
 <p>
   <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tree-layout.png" alt="Tree layout" width="34%">
+</p>
+<p>
   <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tile-layout.png" alt="Tile layout" width="64%">
 </p>
-
 ![Stress test with live graphs](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/stress-test-graphs.png)
 
 ## Installing
 
 Each [release](https://github.com/Tearmoon96/KSysSupervisor/releases) comes in
-two versions. Use whichever you like, they're the same program.
+two versions. They're the same program.
 
 **AppImage.** One file with its own Python, PyQt6 and psutil inside, so there's
 nothing to install:
@@ -29,7 +27,7 @@ chmod +x KSysSupervisor-*-x86_64.AppImage
 ./KSysSupervisor-*-x86_64.AppImage
 ```
 
-**Python version** (`KSysSupervisor-<version>.tar.gz`). Comes with an install
+**Python version** (`KSysSupervisor-<version>.tar.gz`). You can run directly the python file, otherwise it comes with an install
 script. It uses your distribution's PyQt6 and psutil if you have them, and sets
 up a private virtual environment with them if you don't:
 
@@ -81,7 +79,7 @@ is out, and `git pull` is up to you.
 | Motherboard | Super-I/O fans, temperatures and voltage rails, and any other chip the kernel exposes |
 | Battery | Charge, health compared to design capacity, voltage, power, temperature |
 
-With lm_sensors installed it reads `sensors -j`, otherwise it goes straight to
+With lm_sensors installed it reads `sensors -j`, otherwise it uses
 `/sys/class/hwmon`. It works either way, lm_sensors just labels a few more
 things.
 
@@ -110,8 +108,8 @@ reading titles. Heat gets its own colours on top of that: past 80 °C a reading
 and its card turn amber, past 90 °C red, and the card's header says WARM or
 HOT. That happens even if the hot reading is folded away.
 
-You decide what goes where. Click the pencil next to a tile's name and the
-tile turns into its own editor: every reading can be a ring, a chip, a row
+To customize the tile click the pencil next to a tile's name and the
+tile turns into its own editor: every reading can be a chip, a row
 below, tucked into More readings, or hidden. You can reorder them, rename them
 by clicking on them, and pick a different colour for the tile. **Defaults**
 puts it all back. The four-way arrow in the corner drags the tile somewhere
@@ -142,11 +140,9 @@ means manual, what range a channel takes, which headers follow the CPU
 temperature) instead of guessing, and if a fan can't be controlled it tells
 you why.
 
-One oddity: 100% on the slider is 98% of the header's full duty. Some chips
-(nct6775, for example) report a channel sitting at exactly full duty as "no
-control" instead of "manual", and staying just under it avoids that. It costs
-about 1% of fan speed. The raw PWM value next to each fan is always the real
-one.
+One oddity: 100% on the slider is 98% of the fan actual capacity. I ran into some 
+problems when fans were literally at 100% so i opted for making 98% the new 100%. 
+The raw PWM value next to each fan is always the real one.
 
 The helper has to be installed as root, otherwise there'd be no point in
 authorising it. The app notices when it's missing or out of date and offers to
@@ -173,8 +169,7 @@ To remove it: `sudo ./uninstall.sh --fan-control`, or
 
 ## Stress test
 
-**Tools → Stress Test** loads the CPU, the memory and the graphics card on
-purpose, so you can see how the machine copes when it's hot.
+**Tools → Stress Test** loads the CPU, the memory or GPU.
 
 You pick how many CPU workers to run and whether they stay on physical cores,
 how much RAM to fill, and how much graphics memory. Every load also takes a
@@ -208,10 +203,6 @@ They go back a few minutes before the start, so you see the climb from idle.
 Each load runs in its own process, so stopping the test, closing the app or
 killing it ends the load and gives the memory back.
 
-A couple of limits: no graphics API lets you pick specific GPU compute units,
-so the workload decides the kind of work, not where it runs. And asking for
-more memory than is free will push the system into swap. The slider lets you
-do it (with a warning) since sometimes that's the point.
 
 ## Live graphs
 
@@ -282,7 +273,7 @@ the same license. Selling it, or something based on it, isn't allowed; if
 you're interested in commercial use, get in touch.
 
 The application icon is the exception and is **not** under CC BY-NC-SA: it's
-copyright Luca, all rights reserved. It can only be shipped with unmodified
+copyright Tearmoon96, all rights reserved. It can only be shipped with unmodified
 copies of KSysSupervisor, it can't be used in other projects, and forks or
 modified versions have to replace it with their own. Details in
 [LICENSE](LICENSE).
