@@ -2,7 +2,7 @@
 
 A hardware monitor for Linux. Temperatures, fan speeds, clocks, voltages,
 power draw and load for every device in the machine, each with its minimum and
-maximum since the app started. Very similar to HWmonitor for windows.
+maximum since the app started. Very similar to already existing Windows apps.
 
 It also does manual fan control and has a stress test with live graphs
 
@@ -91,7 +91,7 @@ never runs them for you.
 
 There are two layouts and **View → Layout** switches between them.
 
-The **tree** is the classic HWMonitor look: one branch per device, one row per
+The **tree** is a simpler look: one branch per device, one row per
 reading, with value, min and max. Right-click a device to rename it, drag the
 handle on the left to reorder, and hide whole groups from **View →
 Categories**.
