@@ -1,0 +1,10 @@
+{
+  "jc42-i2c-0-18": {
+    "Adapter": "SMBus PIIX4 adapter",
+    "temp1": {"temp1_input": 38.500, "temp1_max": 85.000}
+  },
+  "jc42-i2c-0-1a": {
+    "Adapter": "SMBus PIIX4 adapter",
+    "temp1": {"temp1_input": 37.000, "temp1_max": 85.000}
+  }
+}

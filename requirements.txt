@@ -1,0 +1,5 @@
+# Runtime dependencies. Nothing else outside the standard library is used.
+# PyQt6 6.1 is the first release with the QtOpenGL module (GPU stress test);
+# psutil 5.1 the first with cpu_freq().
+psutil>=5.1.0
+PyQt6>=6.1.0

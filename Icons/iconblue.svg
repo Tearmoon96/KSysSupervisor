@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  KSysSupervisor application icon.
+  Copyright (c) 2026 Luca (github.com/Tearmoon96). All rights reserved.
+
+  This icon is NOT covered by the Creative Commons license of the
+  KSysSupervisor source code. It may only be redistributed as part of
+  unmodified copies of KSysSupervisor, to identify that software. It may not
+  be modified or used in any other project, product or artwork. Modified
+  versions and forks of KSysSupervisor must replace it. See LICENSE.
+-->
+<svg id="sfopnd" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>KSysSupervisor</title>
+  <metadata>
+    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+             xmlns:dc="http://purl.org/dc/elements/1.1/">
+      <rdf:Description rdf:about="">
+        <dc:title>KSysSupervisor application icon</dc:title>
+        <dc:rights>Copyright (c) 2026 Luca (github.com/Tearmoon96). All rights reserved. Not covered by the KSysSupervisor source license; see LICENSE.</dc:rights>
+      </rdf:Description>
+    </rdf:RDF>
+  </metadata>
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #0078ff;
+      }
+
+      .cls-2 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <path class="cls-2" d="M78.3,71.1l-13.46,3.13-9.39,15.34-9.39,58.85s4.26,25.98,5.88,26.92,45.77,11.92,45.77,11.92l89.53,8.43,13.46-13.77,6.26-31.77,2.82-49.7-11.58-14.63-92.35-11.27-27.55-3.44Z"/>
+  <path class="cls-1" d="M191.33,78.96l-46.49-5.65,12.75-19.23-13.06-7L154.97,0l-40.99,56.91,14.53,7.88-1.49,6.35-47.55-5.78c-1.35-.17-2.71-.24-4.05-.22-14.91.22-27.51,11.54-29.3,26.34l-7.57,62.23c-1.99,16.4,9.72,31.35,26.12,33.35l111.87,13.6c1.35.17,2.71.24,4.05.22,14.91-.22,27.51-11.53,29.3-26.32l7.57-62.24c1.99-16.4-9.72-31.35-26.12-33.35ZM203.94,110.66l-7.57,62.24c-1,8.18-7.95,14.24-15.98,14.35-.73.01-1.47-.03-2.2-.11l-111.87-13.6c-8.92-1.08-15.34-9.26-14.26-18.19l7.57-62.24c1-8.18,7.95-14.24,15.98-14.35.73-.01,1.47.03,2.2.11l46.07,5.61,12.52,1.52,53.27,6.47c8.92,1.08,15.34,9.28,14.26,18.19ZM168,227.1c8.36,12.28-.43,28.9-15.28,28.9h-63.19c-14.85,0-23.64-16.63-15.28-28.9l12.36-18.14c3.44-5.06,9.17-8.08,15.28-8.08h38.48c6.12,0,11.84,3.02,15.28,8.08l12.36,18.14ZM93.64,99.32h0c8.52,1.05,14.6,8.85,13.53,17.37l-3.67,29.56c-.3,2.44-2.53,4.17-4.96,3.87l-22.07-2.74c-2.44-.3-4.17-2.53-3.87-4.96l3.67-29.56c1.05-8.52,8.85-14.6,17.37-13.53h0ZM151.28,106.48h0c8.52,1.05,14.6,8.85,13.53,17.37l-3.67,29.56c-.3,2.44-2.53,4.17-4.96,3.87l-22.07-2.74c-2.44-.3-4.17-2.53-3.87-4.96l3.67-29.56c1.05-8.52,8.85-14.6,17.37-13.53h0ZM227.74,178.32h0c-5.9-.73-10.1-6.11-9.37-12.01l5.39-43.6c.73-5.9,6.11-10.1,12.01-9.37h0c5.9.73,10.1,6.11,9.37,12.01l-5.39,43.6c-.73,5.9-6.11,10.1-12.01,9.37ZM20.23,152.68h0c-5.9-.73-10.1-6.11-9.37-12.01l5.39-43.6c.73-5.9,6.11-10.1,12.01-9.37h0c5.9.73,10.1,6.11,9.37,12.01l-5.39,43.6c-.73,5.9-6.11,10.1-12.01,9.37Z"/>
+</svg>

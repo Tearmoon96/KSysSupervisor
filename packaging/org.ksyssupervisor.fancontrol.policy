@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>KSysSupervisor</vendor>
+  <vendor_url>https://github.com/Tearmoon96/KSysSupervisor</vendor_url>
+  <icon_name>ksyssupervisor</icon_name>
+
+  <action id="org.ksyssupervisor.fancontrol.manage">
+    <description>Control fan speeds</description>
+    <description xml:lang="it">Controllare la velocità delle ventole</description>
+    <message>Authentication is required to set fan speeds manually. Fans return to automatic control when KSysSupervisor exits.</message>
+    <message xml:lang="it">È richiesta l'autenticazione per impostare manualmente la velocità delle ventole. Le ventole tornano al controllo automatico alla chiusura di KSysSupervisor.</message>
+
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <!-- auth_admin, not auth_admin_keep. The helper is started once and
+           then driven over a pipe, so a slider never raises a prompt of its
+           own either way. What _keep would add is a few minutes in which any
+           program running as this user could start the helper without a
+           password - and stop every fan. -->
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+
+    <annotate key="org.freedesktop.policykit.exec.path">@HELPER_PATH@</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>

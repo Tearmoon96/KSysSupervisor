@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+dist_binaries/
+.venv/
+venv/
+*.log
+_*.png
+
+# Release output of packaging/make-release.sh; published as release assets,
+# never committed
+release/
+
+# Only the application's own icon is published
+Icons/*
+!Icons/iconblue.svg

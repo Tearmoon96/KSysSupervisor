@@ -1,0 +1,16 @@
+{
+  "nct6798-isa-0290": {
+    "Adapter": "ISA adapter",
+    "Vcore": {"in0_input": 1.024},
+    "3VCC": {"in3_input": 3.312},
+    "+12V": {"in4_input": 12.096},
+    "+5V": {"in6_input": 5.020},
+    "VBAT": {"in8_input": 3.264},
+    "in5": {"in5_input": 1.850},
+    "fan1": {"fan1_input": 812.000},
+    "fan2": {"fan2_input": 1150.000},
+    "SYSTIN": {"temp1_input": 34.000},
+    "CPUTIN": {"temp2_input": 51.500},
+    "intrusion0": {"intrusion0_alarm": 0.000}
+  }
+}

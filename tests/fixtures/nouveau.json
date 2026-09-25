@@ -1,0 +1,8 @@
+{
+  "nouveau-pci-0100": {
+    "Adapter": "PCI adapter",
+    "fan1": {"fan1_input": 1320.000},
+    "temp1": {"temp1_input": 58.000, "temp1_max": 95.000},
+    "power1": {"power1_input": 42.000}
+  }
+}

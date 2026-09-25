@@ -1,0 +1,583 @@
+#!/usr/bin/env python3
+"""Privileged half of KSysSupervisor's fan control.
+
+Runs as root through pkexec and does exactly one thing: write the pwm attributes
+of hwmon chips the caller asks for, having first recorded what they held. It
+speaks a line protocol on stdin/stdout so the unprivileged GUI can drive it
+across one authorisation instead of one per slider move.
+
+The reason it is a long-lived process rather than a series of one-shot writes is
+safety, not convenience. Putting a fan under manual control switches off the
+board's own thermal regulation, so something has to switch it back on. That
+something is this process's exit path: whatever ends it - BYE, stdin closing
+because the GUI died, a signal, or the deadman timer expiring - restores every
+channel that was not explicitly exempted. A `kill -9` of the GUI therefore
+returns the fans to automatic, because the kernel closes the pipe for us.
+
+Deliberately standalone: it imports nothing from the ksyssupervisor package and
+nothing outside the standard library, because it runs as root outside the
+application's virtualenv. It never invokes a shell or another process.
+"""
+
+import os
+import re
+import glob
+import select
+import signal
+import sys
+import time
+
+# 2 since AUTO stopped meaning "restore what CLAIM found" and started meaning
+# "hand the channel to the driver's own regulation". 3 since dell-smm lost its
+# inverted numbering: a version 2 helper answers AUTO on a Dell by writing 1,
+# which is the driver's *manual* mode. A client built for one against a helper
+# built for another reproduces the very bug the change fixed, so the mismatch
+# has to be refused at HELLO, not discovered at AUTO.
+PROTOCOL_VERSION = 3
+
+HWMON_ROOT = "/sys/class/hwmon"
+
+# Seconds without a single command before we assume the GUI is wedged and put
+# the fans back. The GUI sends PING well inside this.
+DEADMAN_SECONDS = 30.0
+
+INDEX_RE = re.compile(r"^[0-9]{1,2}$")
+
+# pwmN_enable is manual mode on every driver that implements it - dell-smm
+# included, whose dell_smm_write() maps 1 to "BIOS control off" and 2 to "on".
+# The automatic values are what differ (2..5 on nct6775, 2 on amdgpu and
+# dell-smm), which is why the original number is saved verbatim and never
+# reconstructed.
+MANUAL = 1
+
+#: "No fan speed control" in the hwmon ABI: the fan runs at full speed.
+OFF = 0
+
+#: pwmN_enable values that hand the channel back to the driver's own
+#: regulation, tried in this order and confirmed by reading the value back.
+#:
+#: The hwmon ABI reserves everything from 2 upwards for automatic modes but
+#: leaves which ones exist to the driver, so there is nothing to look up - a
+#: chip with only one accepts its own and rejects the others with EINVAL.
+#: Highest first because where a driver has several they are numbered oldest to
+#: newest (nct6775: 2 thermal cruise, 3 fan speed cruise, 4 SmartFan III,
+#: 5 SmartFan IV) and the newest is the one a board's firmware normally uses.
+#:
+#: 0 is deliberately absent: the ABI defines it as "no fan speed control", which
+#: means the fan runs flat out, and that is not handing it back.
+AUTO_CANDIDATES = (5, 4, 3, 2)
+
+# Upper bound of pwmN when the driver does not publish pwmN_max. The hwmon ABI
+# says 0..255 and nearly every driver obeys it, but the published value wins
+# when there is one.
+DEFAULT_PWM_MAX = 255
+
+
+def _dell_smm_step(value, actual):
+    """Whether `actual` is what dell-smm stores when asked for `value`.
+
+    The driver keeps 0..255 on the outside but only a few speed states inside:
+    it divides by i8k_pwm_mult = DIV_ROUND_UP(255, fan_max), rounding to the
+    closest state, and reports state * mult back. Asked for 100 on a two-state
+    fan it keeps 128 - a legitimate answer that no fixed tolerance separates
+    from a refused write. fan_max is not published, so every plausible one is
+    tried; a write the driver ignored still matches none of them.
+    """
+    for fan_max in range(1, 17):
+        mult = -(-255 // fan_max)
+        state = min(fan_max, (value + mult // 2) // mult)
+        if actual == min(255, state * mult):
+            return True
+    return False
+
+
+#: Drivers that quantise a pwm write to steps coarser than the readback
+#: tolerance, keyed by chip name, with the rule for what they store instead.
+QUANTISERS = {
+    "dell_smm": _dell_smm_step,
+}
+
+# How hard to look before calling a write refused. A driver that applies the
+# value asynchronously needs a moment; one that is genuinely ignoring the write
+# still looks the same after all of these, so the check keeps its teeth.
+READBACK_ATTEMPTS = 5
+READBACK_DELAY = 0.05
+
+
+class ProtocolError(Exception):
+    """A command that will be answered with ERR rather than acted on."""
+
+
+def _hwmon_dirs():
+    """Real paths of the hwmon directories, resolved here rather than trusted.
+
+    The client passes a path, so the only safe use of it is comparison against
+    this set - never as something to join onto or walk.
+    """
+    found = set()
+    for entry in glob.glob(os.path.join(HWMON_ROOT, "hwmon*")):
+        try:
+            found.add(os.path.realpath(entry))
+        except OSError:
+            continue
+    return found
+
+
+def _read(path):
+    with open(path) as handle:
+        return handle.read().strip()
+
+
+def _write(path, value):
+    # Formatted before the file is opened, not after. Opening for writing
+    # truncates, so a value that fails to format left the attribute empty
+    # rather than unchanged - a failed write must leave the channel alone.
+    text = "%d" % int(value)
+    with open(path, "w") as handle:
+        handle.write(text)
+
+
+class Helper:
+    def __init__(self, out=sys.stdout):
+        self.out = out
+        # (hwmon realpath, index) -> {"pwm": int|None, "enable": int|None,
+        #                             "keep": bool}
+        self.claimed = {}
+        self.finished = False
+
+    # ---- validation -----------------------------------------------------
+
+    def _resolve(self, hwmon, index):
+        """Turn a client-supplied (dir, index) into a pwm path we will write.
+
+        Everything the client sends is treated as a claim to be checked: the
+        directory has to *be* one of the kernel's hwmon nodes (not merely look
+        like one, so symlinks and .. traversal resolve away), the index has to
+        be a small integer, and the filename is then built here. No path the
+        client sends is ever opened directly.
+        """
+        if not INDEX_RE.match(index):
+            raise ProtocolError("bad channel index")
+
+        try:
+            real = os.path.realpath(hwmon)
+        except OSError:
+            raise ProtocolError("unresolvable hwmon path")
+
+        if real not in _hwmon_dirs():
+            raise ProtocolError("not an hwmon directory")
+
+        idx = int(index)
+        pwm = os.path.join(real, "pwm%d" % idx)
+        enable = os.path.join(real, "pwm%d_enable" % idx)
+        if not os.path.isfile(pwm):
+            raise ProtocolError("no such pwm channel")
+        return real, idx, pwm, enable
+
+    @staticmethod
+    def _chip(real):
+        try:
+            return _read(os.path.join(real, "name"))
+        except OSError:
+            return ""
+
+    @staticmethod
+    def _pwm_max(real, idx):
+        """Upper bound this channel accepts, from the driver when it says.
+
+        Read rather than assumed because a value above the driver's range is
+        clamped silently, and the readback below would then report that clamp
+        as a refusal - blaming the hardware for a limit we were told about.
+        """
+        try:
+            value = int(_read(os.path.join(real, "pwm%d_max" % idx)))
+        except (OSError, ValueError):
+            return DEFAULT_PWM_MAX
+        return value if 0 < value <= DEFAULT_PWM_MAX else DEFAULT_PWM_MAX
+
+    @staticmethod
+    def _value(text, ceiling=DEFAULT_PWM_MAX):
+        if not re.match(r"^[0-9]{1,3}$", text):
+            raise ProtocolError("bad pwm value")
+        value = int(text)
+        if not 0 <= value <= DEFAULT_PWM_MAX:
+            raise ProtocolError("pwm value out of range")
+        if value > ceiling:
+            raise ProtocolError("pwm value above this channel's maximum of %d"
+                                % ceiling)
+        return value
+
+    # ---- commands -------------------------------------------------------
+
+    def cmd_hello(self, args):
+        if args and args[0] != str(PROTOCOL_VERSION):
+            raise ProtocolError("unsupported protocol version")
+        return "READY %d" % PROTOCOL_VERSION
+
+    def cmd_claim(self, args):
+        """Record a channel's current state before anything touches it.
+
+        This is what makes the restore possible, so it must happen before the
+        first SET; the GUI claims a channel when the user switches it to
+        manual, so a fan nobody touched is never written.
+        """
+        if len(args) != 2:
+            raise ProtocolError("usage: CLAIM <hwmon> <index>")
+        real, idx, pwm, enable = self._resolve(args[0], args[1])
+
+        key = (real, idx)
+        if key not in self.claimed:
+            # "blind": pwmN_enable exists but cannot be read. dell-smm makes it
+            # write-only (0200) on machines where it is a global BIOS switch,
+            # so there is no "as found" to record and no readback to trust.
+            saved = {"pwm": None, "enable": None, "keep": False,
+                     "blind": False, "took_manual": False}
+            try:
+                saved["pwm"] = int(_read(pwm))
+            except (OSError, ValueError):
+                pass
+            try:
+                saved["enable"] = int(_read(enable))
+            except OSError:
+                # Some drivers expose pwmN without pwmN_enable: the channel is
+                # always manual, so there is no mode to put back.
+                saved["blind"] = os.path.isfile(enable)
+            except ValueError:
+                pass
+            self.claimed[key] = saved
+
+        saved = self.claimed[key]
+        # The bounds go back with the reply so the client sizes its slider from
+        # what the driver actually accepts rather than assuming the ABI default.
+        return "OK %s %s %d" % (
+            "-" if saved["enable"] is None else saved["enable"],
+            "-" if saved["pwm"] is None else saved["pwm"],
+            self._pwm_max(real, idx),
+        )
+
+    def cmd_set(self, args):
+        """Put a channel under manual control at a given duty cycle.
+
+        The value is read back afterwards because a write returning success is
+        not proof it took: several AMD cards accept the write and then keep
+        running their own curve. Reporting ERR there lets the GUI say so
+        instead of showing a speed the fan is not running at.
+        """
+        if len(args) != 3:
+            raise ProtocolError("usage: SET <hwmon> <index> <0-255>")
+        real, idx, pwm, enable = self._resolve(args[0], args[1])
+        value = self._value(args[2], self._pwm_max(real, idx))
+
+        if (real, idx) not in self.claimed:
+            raise ProtocolError("channel not claimed")
+
+        saved = self.claimed[(real, idx)]
+        if saved["blind"]:
+            # Nothing to compare against, so the mode is written once per
+            # take-over rather than read first. Remembered, because the exit
+            # path has to hand back what it cannot see.
+            if not saved["took_manual"]:
+                try:
+                    _write(enable, MANUAL)
+                except OSError as exc:
+                    raise ProtocolError(
+                        "this channel's driver will not release the fan to "
+                        "manual control (%s)" % exc)
+                saved["took_manual"] = True
+        elif os.path.isfile(enable):
+            try:
+                if int(_read(enable)) != MANUAL:
+                    _write(enable, MANUAL)
+            except ValueError as exc:
+                raise ProtocolError("cannot switch to manual mode: %s" % exc)
+            except OSError as exc:
+                # A read-only pwmN_enable is how several laptop drivers say
+                # the firmware is not giving the fan up. Distinguished from a
+                # failed write so the UI can say which it was.
+                raise ProtocolError(
+                    "this channel's driver will not release the fan to manual "
+                    "control (%s)" % exc)
+
+            # Some drivers accept the mode write and stay where they were.
+            try:
+                if int(_read(enable)) != MANUAL:
+                    raise ProtocolError(
+                        "the driver would not switch this channel to manual "
+                        "control")
+            except (OSError, ValueError):
+                pass
+
+        try:
+            _write(pwm, value)
+        except OSError as exc:
+            raise ProtocolError("write failed: %s" % exc)
+
+        # Some drivers quantise: amdgpu rounds to its own internal steps, and a
+        # few Super-I/O chips drop the low bits. A small difference is that
+        # rounding, and calling it a failure would make working hardware look
+        # broken. A large one is the driver ignoring the write outright - the
+        # case this readback exists to catch - and that must not read as
+        # success.
+        #
+        # Scaled to the channel's range rather than fixed, because a tolerance
+        # of one step means something quite different on a 0..2 channel than on
+        # a 0..255 one.
+        ceiling = self._pwm_max(real, idx)
+        tolerance = max(1, ceiling // 32)
+        quantised = QUANTISERS.get(self._chip(real))
+
+        # Retried rather than read once, because the attribute does not
+        # necessarily reflect the write by the time the write() returns.
+        # amdgpu was measured taking a few milliseconds to catch up on a
+        # decrease, during which it still reports the previous duty - reading
+        # once there reports a refusal for a write the card did accept, and
+        # the visible symptom is a GPU fan that cannot be turned down.
+        actual = None
+        for attempt in range(READBACK_ATTEMPTS):
+            if attempt:
+                time.sleep(READBACK_DELAY)
+            try:
+                actual = int(_read(pwm))
+            except (OSError, ValueError) as exc:
+                raise ProtocolError("cannot read back: %s" % exc)
+            if abs(actual - value) <= tolerance:
+                return "OK %d" % actual
+            if quantised is not None and quantised(value, actual):
+                return "OK %d" % actual
+
+        raise ProtocolError("driver kept %d instead of %d" % (actual, value))
+
+    def cmd_auto(self, args):
+        """Hand a channel back to the driver's own regulation.
+
+        Not the same operation as the restore this process does when it exits,
+        even though it used to share its code. That one puts back exactly what
+        CLAIM found, which is right on the way out - including when the user
+        deliberately left a fan pinned in an earlier session. Here it was
+        wrong: if the channel was already manual when we claimed it, restoring
+        "as found" put it straight back into the manual mode the user was
+        asking to leave, and the Automatic button did nothing.
+        """
+        if len(args) != 2:
+            raise ProtocolError("usage: AUTO <hwmon> <index>")
+        real, idx, _pwm, _enable = self._resolve(args[0], args[1])
+        if (real, idx) not in self.claimed:
+            raise ProtocolError("channel not claimed")
+        if self._hand_back(real, idx) is None:
+            raise ProtocolError(
+                "this channel's driver would not take the fan back under "
+                "automatic control")
+        return "OK"
+
+    def _hand_back(self, real, idx):
+        """Put the channel under automatic control. Returns the value that took.
+
+        The mode found at CLAIM is tried first when it was already an automatic
+        one: that is the board's own choice of curve, and better than anything
+        guessed at. Otherwise the candidates are tried in turn - a value the
+        driver does not implement is refused rather than silently accepted, and
+        each is read back before being believed.
+        """
+        saved = self.claimed.get((real, idx))
+        if saved is None:
+            return None
+        enable = os.path.join(real, "pwm%d_enable" % idx)
+        if not os.path.isfile(enable):
+            return None
+
+        candidates = []
+        try:
+            found = int(saved["enable"])
+        except (TypeError, ValueError):
+            found = None
+        if found is not None and found != MANUAL and found != OFF:
+            candidates.append(found)
+        candidates.extend(v for v in AUTO_CANDIDATES if v not in candidates)
+
+        for value in candidates:
+            try:
+                _write(enable, value)
+            except OSError:
+                continue
+            if saved["blind"]:
+                # A write-only mode cannot be read back. The driver refuses a
+                # value it does not implement with EINVAL, so a write that
+                # succeeded is the only confirmation there is.
+                saved["took_manual"] = False
+                return value
+            try:
+                if int(_read(enable)) != value:
+                    continue
+            except (OSError, ValueError):
+                continue
+            # Remembered, so the restore on exit does not put the channel back
+            # into the very mode this call was asked to leave.
+            saved["enable"] = value
+            return value
+        return None
+
+    def cmd_keep(self, args):
+        """Exempt a channel from the restore this process does when it ends.
+
+        Only ever sent after the user has confirmed, twice, that they want a
+        fan left at a fixed speed with no thermal regulation behind it.
+        """
+        if len(args) != 2:
+            raise ProtocolError("usage: KEEP <hwmon> <index>")
+        real, idx, _pwm, _enable = self._resolve(args[0], args[1])
+        if (real, idx) not in self.claimed:
+            raise ProtocolError("channel not claimed")
+        self.claimed[(real, idx)]["keep"] = True
+        return "OK"
+
+    def cmd_ping(self, _args):
+        return "OK"
+
+    def cmd_bye(self, _args):
+        self.finished = True
+        return "OK"
+
+    COMMANDS = {
+        "HELLO": cmd_hello,
+        "CLAIM": cmd_claim,
+        "SET": cmd_set,
+        "AUTO": cmd_auto,
+        "KEEP": cmd_keep,
+        "PING": cmd_ping,
+        "BYE": cmd_bye,
+    }
+
+    def handle(self, line):
+        """One request in, one response line out. Never raises."""
+        parts = line.split()
+        if not parts:
+            return None
+        verb = parts[0].upper()
+        handler = self.COMMANDS.get(verb)
+        if handler is None:
+            return "ERR unknown command"
+        try:
+            return handler(self, parts[1:])
+        except ProtocolError as exc:
+            return "ERR %s" % exc
+        except Exception as exc:                        # pragma: no cover
+            # Running as root: an unhandled traceback must not take the process
+            # down while fans are still under manual control.
+            return "ERR internal error: %s" % exc
+
+    # ---- restore --------------------------------------------------------
+
+    def _restore(self, real, idx):
+        """Put one channel back exactly as CLAIM found it.
+
+        The pwm duty is written before the mode: switching the mode back to
+        automatic hands the channel to the driver, so a duty written after that
+        would either be ignored or briefly fight it.
+        """
+        saved = self.claimed.get((real, idx))
+        if saved is None:
+            return False
+
+        if saved["blind"] and saved["enable"] is None:
+            # Nothing was recorded to put back, but this session did take the
+            # fan over. Leaving the mode alone would leave the firmware's
+            # regulation switched off after exit, so the only safe restore is
+            # handing it back. A channel never taken over was never written.
+            if not saved["took_manual"]:
+                return True
+            if saved["pwm"] is not None:
+                try:
+                    _write(os.path.join(real, "pwm%d" % idx), saved["pwm"])
+                except OSError:
+                    pass
+            return self._hand_back(real, idx) is not None
+
+        ok = True
+        if saved["pwm"] is not None:
+            try:
+                _write(os.path.join(real, "pwm%d" % idx), saved["pwm"])
+            except OSError:
+                # Not fatal on its own: a driver that rejects a duty write
+                # while still in manual mode is unusual, but the mode write
+                # below is the one that actually matters for safety, so it has
+                # to be attempted regardless.
+                ok = False
+        if saved["enable"] is not None:
+            try:
+                _write(os.path.join(real, "pwm%d_enable" % idx), saved["enable"])
+            except OSError:
+                ok = False
+            else:
+                # Handing the channel back to the driver is the whole point, so
+                # a mode that went back counts as a restore even if the duty
+                # write above did not: the driver now owns the duty anyway.
+                ok = True
+        return ok
+
+    def restore_all(self):
+        """Restore every channel that was not explicitly exempted.
+
+        This is the whole safety guarantee, so it runs on every exit path and
+        keeps going past a channel that fails.
+        """
+        for (real, idx), saved in self.claimed.items():
+            if saved["keep"]:
+                continue
+            try:
+                self._restore(real, idx)
+            except Exception:
+                pass
+
+    # ---- main loop ------------------------------------------------------
+
+    def reply(self, text):
+        self.out.write(text + "\n")
+        self.out.flush()
+
+    def run(self, stdin=sys.stdin):
+        """Serve commands until the client goes away, then restore.
+
+        select() rather than a blocking readline so that a GUI which stops
+        talking without closing the pipe - hung, stopped, or wedged behind a
+        modal dialog - still hits the deadman instead of leaving the fans
+        pinned indefinitely.
+        """
+        while not self.finished:
+            try:
+                ready, _, _ = select.select([stdin], [], [], DEADMAN_SECONDS)
+            except (OSError, ValueError):
+                break
+            if not ready:
+                self.reply("ERR deadman expired")
+                break
+
+            line = stdin.readline()
+            if not line:                # EOF: the client exited or was killed
+                break
+
+            response = self.handle(line.rstrip("\n"))
+            if response is not None:
+                self.reply(response)
+
+
+def main():
+    helper = Helper()
+
+    def bail(_signum, _frame):
+        # Restore here rather than just setting a flag: a signal can arrive
+        # while select() blocks, and the fans matter more than a clean unwind.
+        helper.restore_all()
+        os._exit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(sig, bail)
+
+    try:
+        helper.run()
+    finally:
+        helper.restore_all()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
