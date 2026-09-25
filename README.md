@@ -9,7 +9,12 @@ It also does manual fan control and has a stress test with live graphs,
 because once you're watching temperatures you sooner or later want to push
 them and see what happens.
 
-![Tile layout](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tile-layout.png)
+<p>
+  <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tree-layout.png" alt="Tree layout" width="34%">
+  <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tile-layout.png" alt="Tile layout" width="64%">
+</p>
+
+![Stress test with live graphs](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/stress-test-graphs.png)
 
 ## Installing
 
@@ -94,8 +99,6 @@ reading, with value, min and max. Right-click a device to rename it, drag the
 handle on the left to reorder, and hide whole groups from **View →
 Categories**.
 
-![Tree layout](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tree-layout.png)
-
 The **tiles** give each device a card and put the numbers you'd actually look
 at first on top: rings for things with a real maximum (load, memory, disk
 space) and small chips for the rest. Everything else is listed underneath, and
@@ -172,8 +175,6 @@ To remove it: `sudo ./uninstall.sh --fan-control`, or
 
 **Tools → Stress Test** loads the CPU, the memory and the graphics card on
 purpose, so you can see how the machine copes when it's hot.
-
-![Stress test with live graphs](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/stress-test-graphs.png)
 
 You pick how many CPU workers to run and whether they stay on physical cores,
 how much RAM to fill, and how much graphics memory. Every load also takes a
