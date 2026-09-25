@@ -8,10 +8,9 @@ It also does manual fan control and has a stress test with live graphs
 
 <p>
   <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tree-layout.png" alt="Tree layout" width="34%">
+    <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tile-layout.png" alt="Tile layout" width="64%">
 </p>
-<p>
-  <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tile-layout.png" alt="Tile layout" width="64%">
-</p>
+
 ![Stress test with live graphs](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/stress-test-graphs.png)
 
 ## Installing
