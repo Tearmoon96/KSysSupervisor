@@ -1,0 +1,18 @@
+[Desktop Entry]
+# Adds "KSysSupervisor Disk Utility" to what Plasma offers for a drive or
+# volume: the right-click menu of the Places panel in the file manager, and
+# the Device Notifier. @EXEC@ is replaced by the command that starts the
+# installed copy.
+X-KDE-Solid-Predicate=[ IS_NOT OpticalDisc AND StorageVolume.ignored == false ]
+Type=Service
+Actions=open;
+# The Device Notifier would otherwise mount the volume before starting the
+# action, which is the opposite of what formatting it needs.
+X-KDE-SkipMount=true
+
+[Desktop Action open]
+# %d is the block device (Block.device), such as /dev/sdb1.
+Exec=@EXEC@ --disk-utility=%d
+Icon=ksyssupervisor
+Name=KSysSupervisor Disk Utility
+Name[it]=Utilità dischi di KSysSupervisor

@@ -16,12 +16,11 @@ import re
 import glob
 import shutil
 import subprocess
-import tempfile
 import threading
 from dataclasses import dataclass
 from typing import Optional
 
-from . import installation, log
+from . import helperbase, installation, log
 from .hardware import gpu_cards, mobo_name
 
 # 2 since AUTO stopped meaning "restore what CLAIM found" and started meaning
@@ -40,17 +39,13 @@ HWMON_ROOT = "/sys/class/hwmon"
 # otherwise the polkit action would authorise whatever the user cared to put
 # there - which is why a --user install deliberately has nowhere valid to place
 # it.
-HELPER_PATHS = (
-    "/usr/local/lib/ksyssupervisor/ksyssupervisor-fanhelper",
-    "/usr/lib/ksyssupervisor/ksyssupervisor-fanhelper",
-)
+HELPER_PATHS = helperbase.FAN.paths
 
 #: Where install_bundled_helper() puts what it installs. The first of
 #: HELPER_PATHS: /usr/local is for software not managed by the package manager,
 #: which is exactly what a copy carried inside an AppImage is.
-HELPER_INSTALL_PATH = HELPER_PATHS[0]
-POLICY_INSTALL_PATH = \
-    "/usr/share/polkit-1/actions/org.ksyssupervisor.fancontrol.policy"
+HELPER_INSTALL_PATH = helperbase.FAN.install_path
+POLICY_INSTALL_PATH = helperbase.FAN.policy_install_path
 
 PWM_RE = re.compile(r"^pwm([0-9]{1,2})$")
 
@@ -639,25 +634,17 @@ def bundled_helper():
 
     Returns (helper, policy), or (None, None) when this copy ships neither.
     """
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    helper = os.path.join(root, "helpers", "ksyssupervisor-fanhelper")
-    policy = os.path.join(root, "packaging",
-                          "org.ksyssupervisor.fancontrol.policy")
-    if os.path.isfile(helper) and os.path.isfile(policy):
-        return helper, policy
-    return None, None
+    return helperbase.FAN.bundled()
 
 
 def install_bundled_helper(runner=None):
     """Install the bundled helper system-wide, asking for a password via pkexec.
 
-    Returns (ok, message). The files are staged into a temporary directory
-    first and installed from there, never straight out of the directory they
-    ship in: inside an AppImage that directory is a FUSE mount owned by the
-    user, which root cannot read, so copying as root from it would fail with a
-    permission error that has nothing to do with the password.
+    Returns (ok, message). Every helper this copy ships goes in under the one
+    prompt - the disk utility's as well - so that using the other tool later
+    does not ask again; see helperbase.install() for how the files get there.
     """
-    helper, policy = bundled_helper()
+    helper, _policy = bundled_helper()
     if helper is None:
         return False, ("This copy of %s does not ship the fan helper, so there "
                        "is nothing to install from here." % "KSysSupervisor")
@@ -667,28 +654,7 @@ def install_bundled_helper(runner=None):
         return False, ("pkexec was not found. Install polkit, or copy the "
                        "helper into place yourself as root.")
 
-    with tempfile.TemporaryDirectory(prefix="ksyssupervisor-fanhelper-") as stage:
-        # World-readable: root reads these back out of the staging directory.
-        os.chmod(stage, 0o755)
-        staged_helper = os.path.join(stage, "helper")
-        staged_policy = os.path.join(stage, "policy")
-        shutil.copyfile(helper, staged_helper)
-        shutil.copyfile(policy, staged_policy)
-        os.chmod(staged_helper, 0o755)
-        os.chmod(staged_policy, 0o644)
-
-        script = os.path.join(stage, "install.sh")
-        with open(script, "w", encoding="utf-8") as handle:
-            handle.write(_INSTALL_SCRIPT % {
-                "helper_src": staged_helper,
-                "policy_src": staged_policy,
-                "helper_dst": HELPER_INSTALL_PATH,
-                "policy_dst": POLICY_INSTALL_PATH,
-            })
-        os.chmod(script, 0o755)
-
-        run = runner or _run_pkexec
-        code, output = run(["pkexec", "/bin/sh", script])
+    code, output = helperbase.install(runner=runner)
 
     if code == 0:
         return True, ("The fan helper is installed at %s. Fan control is "
@@ -701,38 +667,12 @@ def install_bundled_helper(runner=None):
                    % (code, output.strip() or "No output."))
 
 
-#: Run as root. Installed with the mode the helper needs and no more: root-owned
-#: and not writable by anyone else, because the polkit action authorises this
-#: path and a user-writable file there would authorise whatever it held.
-_INSTALL_SCRIPT = """\
-set -e
-install -Dm755 -o root -g root '%(helper_src)s' '%(helper_dst)s'
-sed 's|@HELPER_PATH@|%(helper_dst)s|' '%(policy_src)s' > '%(policy_dst)s'
-chown root:root '%(policy_dst)s'
-chmod 644 '%(policy_dst)s'
-"""
-
-
-def _run_pkexec(command):
-    try:
-        done = subprocess.run(command, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, timeout=300)
-    except Exception as exc:                 # pragma: no cover - environmental
-        log.exception("Could not run pkexec")
-        return 1, str(exc)
-    return done.returncode, done.stdout.decode("utf-8", "replace")
-
-
 def helper_path():
     """The installed helper, or None if this is not a system install."""
     for path in HELPER_PATHS:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
-
-
-_HELPER_VERSION_RE = re.compile(r"^PROTOCOL_VERSION\s*=\s*([0-9]+)\s*$",
-                                re.MULTILINE)
 
 
 def installed_helper_version(path=None):
@@ -744,16 +684,7 @@ def installed_helper_version(path=None):
     not be read or does not state a version; the handshake stays the
     authority in that case rather than this guess.
     """
-    path = path or helper_path()
-    if path is None:
-        return None
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            text = handle.read(65536)
-    except OSError:
-        return None
-    match = _HELPER_VERSION_RE.search(text)
-    return int(match.group(1)) if match else None
+    return helperbase.protocol_version(path or helper_path())
 
 
 #: For a copy that carries no helper of its own - a hand-made copy of the

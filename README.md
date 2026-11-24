@@ -4,7 +4,9 @@ A hardware monitor for Linux. Temperatures, fan speeds, clocks, voltages,
 power draw and load for every device in the machine, each with its minimum and
 maximum since the app started. Very similar to already existing Windows apps.
 
-It also does manual fan control and has a stress test with live graphs
+It also does manual fan control and has a stress test with live graphs. And it
+has a disk utility: every drive and its health at a glance, and formatting
+that's as simple as it is on Windows.
 
 <p>
   <img src="https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/tree-layout.png" alt="Tree layout" width="34%">
@@ -38,9 +40,9 @@ sudo ./install.sh      # for everyone, in /opt/ksyssupervisor
 ```
 
 Either way you get a `ksyssupervisor` command and an entry in the application
-menu. The system-wide install also sets up the fan control helper; with a
-per-user install the app offers to do that the first time you open Fan
-Control.
+menu. The system-wide install also sets up the two small root helpers, for
+fan control and for the disk utility; with a per-user install the app offers
+to do that the first time you use either.
 
 To remove it, run the uninstaller from the same folder (there's also a copy in
 the install directory):
@@ -48,7 +50,7 @@ the install directory):
 ```sh
 ./uninstall.sh                      # removes it, asks for sudo if it needs to
 ./uninstall.sh --purge              # same, plus your settings
-sudo ./uninstall.sh --fan-control   # only the fan control helper
+sudo ./uninstall.sh --fan-control   # only the root helpers
 ```
 
 `--help` on either script shows the other options.
@@ -119,9 +121,9 @@ layouts share the same names.
 
 ## Fan control
 
-**Tools → Fan Control** lets you set fan speeds by hand. This is the only part
-of KSysSupervisor that changes anything on your system; everything else only
-reads.
+**Tools → Fan Control** lets you set fan speeds by hand. Together with the
+disk utility further down, this is the only part of KSysSupervisor that
+changes anything on your system; everything else only reads.
 
 ![Fan control](https://gist.githubusercontent.com/Tearmoon96/9b04efaf9cb4539e61fc90158f12fd36/raw/fan-control.png)
 
@@ -148,10 +150,13 @@ authorising it. The app notices when it's missing or out of date and offers to
 install it, which is one password prompt. From a terminal:
 
 ```sh
-./KSysSupervisor-*-x86_64.AppImage --install-fan-helper   # AppImage
-ksyssupervisor --install-fan-helper                      # installed with install.sh
-python3 KSysSupervisor.py --install-fan-helper           # source folder
+./KSysSupervisor-*-x86_64.AppImage --install-helpers   # AppImage
+ksyssupervisor --install-helpers                      # installed with install.sh
+python3 KSysSupervisor.py --install-helpers           # source folder
 ```
+
+That installs the disk utility's helper as well, so it's one prompt for both.
+(`--install-fan-helper`, the older name, still works.)
 
 If you'd rather do it by hand from the source folder:
 
@@ -163,8 +168,8 @@ sed 's|@HELPER_PATH@|/usr/local/lib/ksyssupervisor/ksyssupervisor-fanhelper|' \
     | sudo tee /usr/share/polkit-1/actions/org.ksyssupervisor.fancontrol.policy
 ```
 
-To remove it: `sudo ./uninstall.sh --fan-control`, or
-`sudo rm -r /usr/local/lib/ksyssupervisor /usr/share/polkit-1/actions/org.ksyssupervisor.fancontrol.policy`.
+To remove the helpers: `sudo ./uninstall.sh --fan-control`, or
+`sudo rm -r /usr/local/lib/ksyssupervisor /usr/share/polkit-1/actions/org.ksyssupervisor.*.policy`.
 
 ## Stress test
 
@@ -203,6 +208,186 @@ Each load runs in its own process, so stopping the test, closing the app or
 killing it ends the load and gives the memory back.
 
 
+## Disk utility
+
+**Tools → Disk Utility** shows every drive in the machine and what's on it,
+and does the handful of things you'd otherwise need three different programs
+and a terminal for. Linux disk tools are powerful and mostly look like it;
+this one tries to be as plain as the format dialog on Windows.
+
+On the left are the drives: hard disks, SSDs, NVMe drives, memory sticks and
+card readers, each with its size, its temperature and a health verdict. Pick
+one and you get its partitions as a bar and as a list, with the name, the
+filesystem, where it's mounted and how full it is. A volume that isn't mounted
+says so instead of guessing at its usage.
+
+**Details** is underneath: model, serial number, firmware, connection, sector
+sizes, and the health data the drive keeps about itself. For an SSD that
+includes the life left as a percentage, how much has been written to it and
+how long it has been powered on; for a hard disk, the sectors it has had to
+replace. The verdict is Good, Caution or Bad, and it always says why. If a
+drive doesn't report its wear (SATA SSDs each do it their own way) you get
+"not reported" and not a number that might mean something else. All of this is
+read through UDisks, so it needs no password.
+
+What you can do to the selection:
+
+- **Format.** Pick a filesystem (exFAT, FAT32, NTFS, ext4, Btrfs, XFS, F2FS)
+  and a name, and that's it. On a partition you choose between that partition
+  alone and the **whole drive, restored to one volume** - which is how a stick
+  that was an installer, or is split into pieces, gets its full size back. The
+  dialog warns you about choices you might regret while you make them: NTFS on
+  a small memory stick, FAT32's 4 GB file limit, a Linux filesystem on a drive
+  that has to work on Windows too, a name that's too long for the filesystem.
+  A quick format just creates the new filesystem; a full one erases everything
+  first, by overwriting a hard disk with zeros or by discarding every block of
+  an SSD. For exFAT, FAT32 and NTFS you can also pick the **cluster size** -
+  every file takes whole clusters, so it decides how much space small files
+  waste. The usual size for the volume is preselected and marked, and the
+  line under it says what any other size costs. A mounted exFAT, FAT32 or
+  NTFS volume shows its current cluster size next to its usage.
+- **Mount, Unmount, Eject.** Same as the file manager would do, in the same
+  place.
+- **Rename.** Changes a volume's name without touching what's on it.
+
+Before anything is erased you get the exact list of what will be lost and what
+is about to happen, step by step, and Enter is always Cancel. For a drive
+that's built into the computer you also have to tick a box.
+
+Under those buttons are four menus.
+
+**Maintain** is upkeep. *Optimise* does what suits the drive: TRIM on an SSD,
+a look at fragmentation on a hard disk. TRIM can be run now, and the system's
+weekly TRIM switched on or off. Fragmentation is measured with the
+filesystem's own tool before anything is offered, and the answer is usually
+"not needed"; on an SSD defragmenting is strongly advised against and wants a
+tick. *Check for Errors* looks without changing anything and only then offers
+a repair, which is itself checked afterwards. *Wipe Free Space* overwrites
+what isn't in use so deleted files can't be brought back, without touching the
+files that are there. There is the drive's own self-test, and *What the
+System Reports About This Drive*, which reads the kernel's complaints and
+tells a failing drive from a bad cable.
+
+**Copy** clones a drive or a partition onto another: every block, or only the
+blocks in use where a tool can tell them (ext4, NTFS, XFS). The copy is read
+back and compared unless you say not to, and a source with unreadable areas
+can be copied around them, with the skipped ranges listed. Copying a drive
+onto a larger one, you can tick *let the last partition use the free space*:
+once the copy is checked, its last partition and the filesystem in it are
+enlarged to the end of the new drive (ext4, Btrfs, XFS, NTFS, F2FS and swap;
+the line under the tick says which partition and to what size, or why not).
+A drive or
+partition can be saved as an image file and written back, and an installer
+`.iso` of a Linux system written to a memory stick. For a drive that is
+failing there is *Rescue to an Image*, which copies the easy parts first and
+goes back for the difficult ones, and an image can be opened as a read-only
+drive so that everything else here works on the copy.
+
+**Partitions** creates, deletes, resizes and moves partitions, and writes a
+new table. A resize asks the filesystem's own tool how small it can go, checks
+the filesystem before and after, and saves the previous table first. ext4,
+NTFS and Btrfs grow and shrink; XFS and F2FS only grow; FAT32 and exFAT can't
+be resized at all, and say so. A move can't be interrupted, but it keeps a
+record as it goes, so one cut short by a power failure is finished afterwards
+from where it stopped. *Search for Lost Partitions* finds filesystems that
+are still on a drive without an entry in the table and puts the entries back.
+
+**Recover Files** looks for what was lost, in two depths. *Quick Scan*
+takes seconds: deleted files on NTFS, FAT32 and exFAT come back with their
+names and folders. *Deep Scan* reads the whole drive: after a format, a drive
+that was NTFS gives its files back in their folders, one that was FAT32 or
+exFAT the files inside its folders (what was at the very top goes with the
+format); then photos, documents, music and video are found by their content,
+without names. It can be limited to some kinds, keep files that come back
+damaged, or keep everything that only loosely looks like a file. The drive
+is only read. A search is kept in one file that opens again without
+searching twice - also on another computer - and where recovered files go
+is chosen only when they are recovered. The results are shown in the folders
+the files were in or by kind, with the same ticks on both; a Deep Scan
+started from them adds to them. Recovered files are checked and marked
+intact, partly damaged or unreadable, and damaged documents, PDFs and
+pictures can be rebuilt from what is left of them. *Find
+RAID Arrays* puts an array from a NAS or another computer together read-only,
+also with a drive missing. *Put Drives Together as an Array* does it for a
+RAID 0 or RAID 5 whose own record is gone - a dead hardware controller's,
+for example: which drive comes first, the piece size and the parity layout
+are worked out from the filesystem on the drives (NTFS, FAT32, exFAT or
+ext4), and it says so when it can't be sure.
+
+Two things no program can do, this one included: bring back files deleted
+from an SSD that has been trimmed since, and read a drive whose own firmware
+has failed. Both are said up front instead of after a long search.
+
+A few things it will not do, on purpose:
+
+- **Nothing destructive on the system drive.** The volumes your running system
+  lives on (`/`, `/boot`, `/home`, swap and so on) can't be formatted,
+  unmounted, renamed, resized or checked, and the drive they are on can't be
+  cloned: a drive in use can't be copied reliably. The entries are greyed out
+  and tell you why, and the helper that does the actual work refuses on its
+  own even if the window somehow asked. TRIM, defragmenting and wiping free
+  space are safe there and stay available. To do the rest to the system
+  drive - moving to a new SSD, for one - start the computer from a
+  recovery stick (below).
+- **Windows volumes are handled with care.** One that was hibernated, or
+  closed by "fast startup", is not changed, and the message says what to do in
+  Windows. A BitLocker volume is shown as encrypted. After a resize, Windows
+  checks the drive at its next start, which is expected.
+- **It doesn't trust a device name.** `sdd` is whatever was plugged in fourth.
+  If you swap one memory stick for another between looking at it and
+  confirming, the format is refused and not carried out on the wrong one.
+- **It doesn't take a tool's word for it.** After a format the device is read
+  back and compared with what you asked for.
+- **It tells a slow drive from a stuck one.** While an operation runs,
+  **Details** shows what the tool is doing ("Writing inode tables: 412/924"),
+  how much has been written and how fast. If the drive stops answering for a
+  minute you get a warning, along with what the system reported about the
+  drive and whether it is safe to unplug it.
+
+Like fan control, anything that writes goes through a small helper that runs
+as root and is authorised through polkit: one password prompt per session. It
+installs the same way, and the same prompt installs both helpers. The actual
+work is done by the standard tools (`mkfs.*`, `sfdisk`, `wipefs`, `e2fsck`,
+`ntfsresize` and the like), so whatever needs a tool that isn't installed is
+greyed out with the name of the package to install. Recovery uses The Sleuth
+Kit, TestDisk/PhotoRec and `ddrescue` (`sleuthkit`, `testdisk`, `ddrescue`),
+and `mdadm` for RAID.
+
+On Plasma, **KSysSupervisor Disk Utility** also appears when you right-click a
+drive in the file manager's Places panel, and in the Device Notifier. The
+install script sets that up; with the AppImage, turn it on from the menu
+button next to **Refresh**.
+
+### Recovery stick
+
+**Tools → Make a Recovery Stick** (or **Copy → Make a Recovery Stick on
+This** on a USB stick) turns a stick of 1 GB or more into a small system
+that starts a computer straight into the Disk Utility, full screen. It is the
+way to clone, resize or repair the drive your system runs from, since
+nothing on that drive is in use while the stick runs.
+
+The stick is put together from your own computer: its kernel, its Python and
+Qt, its disk tools. Nothing is downloaded, it takes about 150 MB, and it
+starts in a few seconds. It uses your distribution's signed boot loader, so
+it starts with Secure Boot on (Fedora, Ubuntu, Debian, openSUSE); without
+one, it is built anyway and Secure Boot has to be off. It needs a computer
+with UEFI - anything from about 2012 on - and 2 GB of memory. The stick stays
+an ordinary FAT32 stick: the rest of it holds files as before.
+
+On the stick nothing happens the moment you click. Each change you set up -
+a format, a clone, a resize, a new partition - goes into a list at the
+bottom of the screen, and the drives are shown as they will be: a deleted
+partition is gone from the bar, a new one is there, striped until it is real.
+You can set up the next change on top of that, take one back, or discard
+them all. **Apply Changes** shows the whole list once more and then carries
+it out in order, stopping at the first thing that goes wrong. The stick
+itself can't be changed from the stick, and what the helper needs to finish
+a moved partition after a power cut is kept on it.
+
+Drive health isn't shown on the stick (it comes from UDisks, which the
+stick doesn't have), and its keyboard is the one your computer uses, with a
+choice of others at the top of the screen.
+
 ## Live graphs
 
 **Tools → Live Graphs** opens a panel on the right of the main window with a
@@ -222,7 +407,8 @@ you open later still shows what happened before.
   --interval SECONDS     refresh interval (default 1.0)
   --debug                verbose logging
   --no-dep-check         skip the startup check for optional utilities
-  --install-fan-helper   install the fan control helper and exit
+  --install-helpers      install the fan control and disk helpers and exit
+  --disk-utility [DEV]   open only the Disk Utility, optionally on a device
   --version
   ```
 
@@ -233,7 +419,12 @@ you open later still shows what happened before.
   distribution's packages: `python3-pyqt6 python3-psutil` on Fedora, Debian and
   Ubuntu, `python-pyqt6 python-psutil` on Arch
 - Optional: `lm_sensors` for better sensor coverage, `pciutils` for hardware
-  names, `nvidia-smi` for NVIDIA cards, `polkit` for fan control
+  names, `nvidia-smi` for NVIDIA cards, `polkit` for fan control and the disk
+  utility
+- For the disk utility: `udisks2` (drive health, mounting; every desktop has
+  it) and, for each filesystem you want to create, its tools: `e2fsprogs`,
+  `dosfstools`, `exfatprogs`, `ntfs-3g` or `ntfsprogs`, `btrfs-progs`,
+  `xfsprogs`, `f2fs-tools`. The ones that are missing are simply greyed out
 
 The AppImage doesn't carry libGL or graphics drivers on purpose, it uses your
 system's. A bundled stack would run the GPU stress test on a software renderer.
@@ -247,8 +438,8 @@ cd KSysSupervisor
 python3 KSysSupervisor.py
 ```
 
-Nothing needs installing for monitoring; fan control needs the helper (see
-above).
+Nothing needs installing for monitoring; fan control and the disk utility
+need their helpers (see above).
 
 To run the tests (no special hardware needed, they use recorded sensor data
 and fake sysfs trees):
@@ -258,7 +449,10 @@ python3 -m unittest discover -s tests
 ```
 
 `tests/verify-fan-hardware.sh` runs the fan checks against your real fans and
-puts them back afterwards.
+puts them back afterwards. `sudo tests/verify-disk-tools.py` runs the disk
+helper for real, but only ever against loop devices it creates itself from
+files in a temporary folder: it formats them with every filesystem and checks
+each result with `blkid`, `fsck` and a mount. No real drive is touched.
 
 To build it yourself: `./packaging/build-appimage.sh` makes the AppImage in
 `dist/`, and `./packaging/make-release.sh` builds a full release in `release/`

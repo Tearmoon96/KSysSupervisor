@@ -287,6 +287,8 @@ class TileBoard(QScrollArea):
     reset_name_requested = pyqtSignal(str)
     #: A reading's uid, from a tile's "Show in Live Graphs".
     graph_requested = pyqtSignal(str)
+    #: A drive's block device name, from a drive tile's menu.
+    disk_utility_requested = pyqtSignal(str)
     #: (tile key, name), from a tile renamed in place.
     name_changed = pyqtSignal(str, str)
     #: Never emitted - tiles show no min/max - but declared like the
@@ -374,6 +376,7 @@ class TileBoard(QScrollArea):
         tile.rename_requested.connect(self.rename_requested.emit)
         tile.reset_name_requested.connect(self.reset_name_requested.emit)
         tile.graph_requested.connect(self.graph_requested.emit)
+        tile.disk_utility_requested.connect(self.disk_utility_requested.emit)
         tile.name_changed.connect(self.name_changed.emit)
         tile.config_changed.connect(self.config_changed.emit)
         tile.resized.connect(self._relayout)

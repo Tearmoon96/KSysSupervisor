@@ -67,13 +67,17 @@ for file in KSysSupervisor.py requirements.txt install.sh uninstall.sh \
 done
 cp -r "$ROOT/ksyssupervisor" "$DIR/"
 cp "$ROOT/helpers/ksyssupervisor-fanhelper" "$DIR/helpers/"
+cp "$ROOT/helpers/ksyssupervisor-diskhelper" "$DIR/helpers/"
 cp "$ROOT/packaging/org.ksyssupervisor.fancontrol.policy" "$DIR/packaging/"
+cp "$ROOT/packaging/org.ksyssupervisor.diskmanager.policy" "$DIR/packaging/"
+cp "$ROOT/packaging/ksyssupervisor_diskutility.desktop" "$DIR/packaging/"
 cp "$ROOT/Icons/iconblue.svg" "$DIR/Icons/"
 
 find "$DIR" -name __pycache__ -type d -prune -exec rm -rf {} +
 find "$DIR" -name '*.py[co]' -type f -delete
 chmod 755 "$DIR/KSysSupervisor.py" "$DIR/install.sh" "$DIR/uninstall.sh" \
-          "$DIR/helpers/ksyssupervisor-fanhelper"
+          "$DIR/helpers/ksyssupervisor-fanhelper" \
+          "$DIR/helpers/ksyssupervisor-diskhelper"
 
 # Words that must not appear in anything published, one extended regex per
 # line, kept in an optional local file that is itself never published. Checked
@@ -96,9 +100,12 @@ fi
 (cd "$DIR" && PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen python3 -c "
 import sys; sys.path.insert(0, '.')
 import ksyssupervisor.window, ksyssupervisor.fanwindow, ksyssupervisor.stresswindow
+import ksyssupervisor.diskwindow
 import ksyssupervisor.updater
-from ksyssupervisor import fanctl
+from ksyssupervisor import diskctl, diskentry, fanctl
 assert fanctl.bundled_helper()[0], 'the fan helper is missing'
+assert diskctl.bundled_helper()[0], 'the disk helper is missing'
+assert diskentry.render(['x']), 'the right-click entry template is missing'
 ") || die "The assembled release does not import."
 
 info "Packing $NAME.tar.gz..."

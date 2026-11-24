@@ -70,8 +70,9 @@ Options:
   --user      Remove this user's installation
   --system    Remove the system-wide installation (needs root)
   --all       Remove both
-  --fan-control  Remove ONLY the fan control helper and its polkit policy,
-              leaving the application itself installed
+  --fan-control  Remove ONLY the root helpers (fan control and the disk
+              utility) and their polkit policies, leaving the application
+              itself installed
   --purge     Also delete settings (~/.config/KSysSupervisor), including saved
               fan names and window geometry
   --dry-run   List what would be removed, change nothing
@@ -136,7 +137,10 @@ SYSTEM_PATHS=(
     # left behind, it would keep naming a path that no longer exists but that
     # something else could later occupy.
     "/usr/share/polkit-1/actions/org.ksyssupervisor.fancontrol.policy"
+    "/usr/share/polkit-1/actions/org.ksyssupervisor.diskmanager.policy"
     "/usr/local/lib/ksyssupervisor"
+    # The disk utility's entry in the drives' right-click menu.
+    "/usr/share/solid/actions/ksyssupervisor_diskutility.desktop"
     # The pre-release name. Listed so a plain uninstall cannot leave a root-owned
     # helper behind - still authorised by its own polkit action - just because
     # it predates the rename.
@@ -148,10 +152,12 @@ SYSTEM_PATHS=(
     "/usr/share/pixmaps/ksysmonitor.svg"
 )
 
-# The two files fan control needs, which can be installed and removed on their
-# own: the application does not have to be system-wide for them to work.
+# The root helpers - fan control's and the disk utility's, which share a
+# directory - and their polkit actions. They can be installed and removed on
+# their own: the application does not have to be system-wide for them to work.
 FAN_PATHS=(
     "/usr/share/polkit-1/actions/org.ksyssupervisor.fancontrol.policy"
+    "/usr/share/polkit-1/actions/org.ksyssupervisor.diskmanager.policy"
     "/usr/local/lib/ksyssupervisor"
     # The pre-release name. Removed here too, so uninstalling cannot leave a
     # root-owned helper behind just because it predates the rename.
@@ -168,6 +174,9 @@ USER_PATHS=(
     "$DATA_HOME/applications/ksyssupervisor.desktop"
     "$DATA_HOME/icons/hicolor/scalable/apps/ksyssupervisor.svg"
     "$DATA_HOME/pixmaps/ksyssupervisor.svg"
+    # The disk utility's entry in the drives' right-click menu, whether
+    # install.sh wrote it or the application did for an AppImage.
+    "$DATA_HOME/solid/actions/ksyssupervisor_diskutility.desktop"
 )
 
 anything_present() {
@@ -287,11 +296,11 @@ uninstall_system() {
 
 uninstall_fan_control() {
     if [ "$(id -u)" -ne 0 ] && [ "$DRY_RUN" -eq 0 ]; then
-        error "Removing the fan control helper needs root."
+        error "Removing the root helpers needs root."
         echo "    sudo ./uninstall.sh --fan-control"
         return 1
     fi
-    info "Removing the fan control helper and polkit policy..."
+    info "Removing the fan control and disk utility helpers and their polkit policies..."
     local path
     for path in "${FAN_PATHS[@]}"; do drop "$path"; done
     return 0

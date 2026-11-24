@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QHeaderView, QMenu, QStyle, QStyledItemDelegate,
                              QStyleOptionViewItem, QTreeWidget,
                              QTreeWidgetItem)
 from PyQt6.QtCore import Qt, QPointF, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPen
 
 from . import display
 from .geometry import screen_limits
@@ -245,6 +245,8 @@ class SensorTree(SortableTreeWidget):
     clear_bounds_requested = pyqtSignal(str)
     #: A reading's uid, from its row's right-click menu.
     graph_requested = pyqtSignal(str)
+    #: A drive's block device name, from its category's right-click menu.
+    disk_utility_requested = pyqtSignal(str)
 
     #: Where a reading row keeps its uid. Not UserRole: that is the device key
     #: on a category, and apply_order() reads it from every top-level item.
@@ -471,4 +473,13 @@ class SensorTree(SortableTreeWidget):
         clear.triggered.connect(lambda: self.clear_bounds_requested.emit(key))
         explain(clear, "Clear Min/Max", "Start this device's lowest and "
                 "highest readings again from now.")
+        if isinstance(key, str) and key.startswith("disk:"):
+            menu.addSeparator()
+            utility = menu.addAction(QIcon.fromTheme("drive-harddisk"),
+                                     "Disk Utility...")
+            utility.triggered.connect(
+                lambda: self.disk_utility_requested.emit(key.split(":", 1)[1]))
+            explain(utility, "Disk Utility",
+                    "Open this drive in the Disk Utility: its volumes, its "
+                    "health, and formatting.", TOOL_COLOURS["disks"])
         return menu

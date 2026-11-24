@@ -21,6 +21,12 @@ HWMON_ROOT = "/sys/class/hwmon"
 BLOCK_ROOT = "/sys/block"
 CLASS_BLOCK_ROOT = "/sys/class/block"
 
+#: Set by the application to something with a snapshot() of
+#: {block device name: health}; left None, no health is reported. Reading a
+#: drive's health takes the disk service a moment, far too long for a sensor
+#: tick, so it is collected elsewhere and only looked up here.
+HEALTH = None
+
 
 def _disks_under(name, seen=None):
     """The whole disks a block device lives on: itself, or its parents.
@@ -175,6 +181,15 @@ class StorageProvider(SensorProvider):
                     out.append(Reading(key, "Utilization", "vol:%s" % mount,
                                        volume_label(mount), used / 1e9,
                                        "memory_gb", total=total / 1e9))
+        # How much of a solid-state drive's rated life is left, where the
+        # drive reports it.
+        health = HEALTH.snapshot() if HEALTH is not None else {}
+        for key, _name, _hwmon in self._found():
+            found = health.get(_block_of(key))
+            life = getattr(found, "life_left", None)
+            if life is not None:
+                out.append(Reading(key, "Utilization", "life", "Life Left",
+                                   float(life), "utilization"))
         return out
 
     @staticmethod

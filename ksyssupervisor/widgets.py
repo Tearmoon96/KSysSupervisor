@@ -6,10 +6,24 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel,
                              QMenu, QPushButton, QSizePolicy, QStyle,
                              QVBoxLayout, QWidget)
 from PyQt6.QtCore import Qt, QRectF, QEvent, QEventLoop, QTimer, pyqtSignal
-from PyQt6.QtGui import (QColor, QFont, QFontMetrics, QIcon, QPainter,
-                         QPalette, QPen)
+from PyQt6.QtGui import (QColor, QFont, QFontDatabase, QFontMetrics, QIcon,
+                         QPainter, QPalette, QPen)
 
 from . import log
+
+
+def fixed_font():
+    """The desktop's fixed-width font, for tool output and logs.
+
+    Without a desktop's platform theme - the recovery stick draws straight
+    on the screen - Qt has none to give and returns a font with no family
+    at all, which draws every character as a box. Ask for "monospace" by
+    name then: fontconfig, and the stick's own font settings, answer it."""
+    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    if not font.family():
+        font = QFont("monospace")
+        font.setStyleHint(QFont.StyleHint.TypeWriter)
+    return font
 
 #: Amber rather than a palette role: no role means "caution", and this has to
 #: read as a warning against both a light and a dark background.
@@ -50,6 +64,7 @@ TOOL_COLOURS = {
     "fans": "#5fa8b8",      # Fan Control, steel teal
     "stress": "#c78a66",    # Stress Test, terracotta
     "graphs": "#7d9be0",    # Live Graphs, periwinkle
+    "disks": "#b98ac9",     # Disk Utility, orchid
 }
 
 
@@ -328,6 +343,26 @@ class Card(QWidget):
         super().changeEvent(event)
 
 
+class WrappedLabel(QLabel):
+    """A wrapped label that gets the height its text needs at the width it
+    is given.
+
+    Layouts size a wrapped QLabel for the width it would like, which is
+    wider than it usually gets: at its real width the text runs to more
+    lines than there is room for, and the last one is cut off.
+    """
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        needed = self.heightForWidth(self.width())
+        if needed > 0 and needed != self.minimumHeight():
+            self.setMinimumHeight(needed)
+
+
 class ElidingLabel(QLabel):
     """A label that shortens its text instead of forcing the window wider.
 
@@ -368,7 +403,14 @@ class ElidingLabel(QLabel):
 
     def sizeHint(self):
         hint = super().sizeHint()
-        hint.setWidth(QFontMetrics(self.font()).horizontalAdvance(self._full))
+        # The wider of the two measures. elidedText() goes by the bounding
+        # rectangle, which for a bold font overhangs the advance by a pixel
+        # or two: sized to the advance alone, a name given exactly the room
+        # it asked for was still shortened - "Wind…11-D" in a row with space
+        # to spare.
+        metrics = QFontMetrics(self.font())
+        hint.setWidth(max(metrics.horizontalAdvance(self._full),
+                          metrics.boundingRect(self._full).width()))
         return hint
 
     def minimumSizeHint(self):

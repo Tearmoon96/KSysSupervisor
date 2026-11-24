@@ -128,6 +128,7 @@ def _open(url, opener=None, timeout=TIMEOUT, accept=None):
     except UpdateError:
         raise
     except urllib.error.HTTPError as exc:
+        exc.close()                  # it holds the answer's connection open
         if exc.code == 404:
             raise UpdateError("No release has been published yet.")
         if exc.code == 403:
@@ -366,22 +367,17 @@ def perform_update(release, install_kind=None, progress=None, opener=None,
         return installation.launcher(install_kind, env)
 
 
-# ---- the fan helper after an update -----------------------------------------
+# ---- the helpers after an update --------------------------------------------
 
 def helper_outdated():
-    """Whether the installed fan helper differs from the one this copy ships.
+    """Whether an installed helper differs from the one this copy ships.
 
     Asked by the new version on its first start after an update: an AppImage
-    carries its helper inside, where the old version could not look before
-    replacing itself. False when no helper is installed - nothing to update.
+    carries its helpers inside, where the old version could not look before
+    replacing itself. Covers the fan helper and the disk utility's; False
+    when neither is installed - nothing to update.
     """
-    from . import fanctl
-    installed = fanctl.helper_path()
-    bundled, _policy = fanctl.bundled_helper()
-    if installed is None or bundled is None:
-        return False
-    try:
-        with open(installed, "rb") as a, open(bundled, "rb") as b:
-            return a.read() != b.read()
-    except OSError:
-        return False
+    from . import diskctl, fanctl, helperbase
+    return any(helperbase.differs(module.helper_path(),
+                                  module.bundled_helper()[0])
+               for module in (fanctl, diskctl))

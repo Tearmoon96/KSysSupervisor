@@ -376,6 +376,24 @@ class PerformUpdateTest(unittest.TestCase):
 
 
 class HelperAfterUpdateTest(unittest.TestCase):
+    def setUp(self):
+        # Whatever disk helper this machine has installed is not the subject:
+        # each test states which helper is installed and which is not.
+        patch = mock.patch("ksyssupervisor.diskctl.helper_path",
+                           return_value=None)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_an_outdated_disk_helper_counts_too(self):
+        with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+            handle.write("PROTOCOL_VERSION = 0\n")
+        self.addCleanup(os.remove, handle.name)
+        with mock.patch("ksyssupervisor.fanctl.helper_path",
+                        return_value=None), \
+                mock.patch("ksyssupervisor.diskctl.helper_path",
+                           return_value=handle.name):
+            self.assertTrue(updater.helper_outdated())
+
     def test_no_installed_helper_needs_no_update(self):
         with mock.patch("ksyssupervisor.fanctl.helper_path", return_value=None):
             self.assertFalse(updater.helper_outdated())

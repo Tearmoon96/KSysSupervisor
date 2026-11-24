@@ -57,15 +57,29 @@ def parse_args(argv):
                         help="skip the missing-utility check at startup")
     parser.add_argument("--interval", type=float, default=1.0, metavar="SECONDS",
                         help="sensor refresh interval in seconds (default: 1.0)")
-    parser.add_argument("--install-fan-helper", action="store_true",
-                        help="install the bundled fan helper system-wide "
-                             "(asks for a password) and exit")
+    # Two names for one thing: the first is the one the README has always
+    # given, the second says what it does now that there are two helpers.
+    parser.add_argument("--install-fan-helper", "--install-helpers",
+                        action="store_true", dest="install_helpers",
+                        help="install the bundled fan control and disk "
+                             "helpers system-wide (asks for a password) "
+                             "and exit")
+    parser.add_argument("--disk-utility", nargs="?", const="", default=None,
+                        metavar="DEVICE",
+                        help="open the Disk Utility on its own, optionally "
+                             "on a drive or volume such as /dev/sdb1")
+    parser.add_argument("--rescue", action="store_true",
+                        help="the recovery stick's full-screen Disk "
+                             "Utility (only works on the stick)")
     # Unknown arguments are passed through to Qt (e.g. -style, -platform).
     return parser.parse_known_args(argv)
 
 
-def install_fan_helper():
-    """Handle --install-fan-helper: no window, just the pkexec prompt."""
+def install_helpers():
+    """Handle --install-helpers: no window, just the pkexec prompt.
+
+    One prompt installs the fan control helper and the disk utility's.
+    """
     from .fanctl import install_bundled_helper
 
     ok, message = install_bundled_helper()
@@ -83,10 +97,16 @@ def main(argv=None):
     # Before the dependency check and before Qt: installing the helper needs
     # neither, and this is the one thing an AppImage user has to be able to do
     # from a terminal.
-    if args.install_fan_helper:
-        return install_fan_helper()
+    if args.install_helpers:
+        return install_helpers()
 
     ensure_dependencies()
+
+    if args.rescue:
+        # The recovery stick: its own window, no sensors, no tray, no
+        # OpenGL - nothing the stick's small system does not have.
+        from .rescuewindow import run as run_rescue
+        return run_rescue(qt_args)
 
     # Imported only now: check_compatibility() and ensure_dependencies() must be
     # able to report a problem before any Qt import can fail.
@@ -135,6 +155,42 @@ def main(argv=None):
         log.exception("Could not carry settings over from the old name")
 
     install_excepthook()
+
+    try:
+        # An AppImage that an update has renamed: the drives' right-click
+        # entry, if the user has one, still names the old file.
+        from . import diskentry
+        diskentry.refresh()
+    except Exception:
+        log.exception("Could not check the disk utility's right-click entry")
+
+    if args.disk_utility is None:
+        try:
+            # Drive health for the sensor list, and a warning when a drive's
+            # verdict gets worse. Collected on its own thread.
+            from . import diskhealth
+            from .providers import storage
+            storage.HEALTH = diskhealth.HealthWatch()
+            storage.HEALTH.start()
+        except Exception:
+            log.exception("Could not start watching drive health")
+
+    if args.disk_utility is not None:
+        # The Disk Utility by itself, as the file manager's right-click entry
+        # starts it: no sensor window, and the application ends when it is
+        # closed.
+        try:
+            from .diskwindow import DiskUtilityWindow
+            disk_window = DiskUtilityWindow(select=args.disk_utility or None)
+            disk_window.show()
+        except Exception as exc:
+            log.critical("The Disk Utility could not be built", exc_info=True)
+            QMessageBox.critical(
+                None, "%s - startup failed" % APP_NAME,
+                "The Disk Utility could not be opened.\n\n%s\n\n"
+                "Details were written to:\n%s" % (exc, log_file_path()))
+            return EXIT_GUI_INIT_FAILED
+        return app.exec()
 
     dep_report = ([], []) if args.no_dep_check else check_dependencies()
 

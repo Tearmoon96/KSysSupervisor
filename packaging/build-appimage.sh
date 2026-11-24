@@ -107,8 +107,14 @@ cp "$ROOT/README.md" "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$SHARE/"
 # packaging/ is build tooling.
 mkdir -p "$SHARE/helpers" "$SHARE/packaging"
 cp "$ROOT/helpers/ksyssupervisor-fanhelper" "$SHARE/helpers/"
+cp "$ROOT/helpers/ksyssupervisor-diskhelper" "$SHARE/helpers/"
 cp "$ROOT/packaging/org.ksyssupervisor.fancontrol.policy" "$SHARE/packaging/"
-chmod 755 "$SHARE/helpers/ksyssupervisor-fanhelper"
+cp "$ROOT/packaging/org.ksyssupervisor.diskmanager.policy" "$SHARE/packaging/"
+# The template of the disk utility's right-click entry: an AppImage has no
+# installer to place it, so the application writes it from this on request.
+cp "$ROOT/packaging/ksyssupervisor_diskutility.desktop" "$SHARE/packaging/"
+chmod 755 "$SHARE/helpers/ksyssupervisor-fanhelper" \
+          "$SHARE/helpers/ksyssupervisor-diskhelper"
 mkdir -p "$SHARE/Icons"
 cp "$ROOT/Icons/iconblue.svg" "$SHARE/Icons/"
 find "$SHARE" -name __pycache__ -type d -prune -exec rm -rf {} +
@@ -222,7 +228,9 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget     # noqa: F401
 from ksyssupervisor.window import KSysSupervisor
 from ksyssupervisor.stresswindow import StressWindow
 from ksyssupervisor.fanwindow import FanControlWindow  # noqa: F401
-from ksyssupervisor import fanctl, installation, updater  # noqa: F401
+from ksyssupervisor.diskwindow import DiskUtilityWindow  # noqa: F401
+from ksyssupervisor import (diskctl, diskentry, fanctl,  # noqa: F401
+                            installation, updater)
 
 app = QApplication(sys.argv[:1])
 icon = QIcon(sys.argv[1] + "/Icons/iconblue.svg")
@@ -233,6 +241,8 @@ stress = StressWindow()
 stress._closed = True
 stress.close()
 assert fanctl.bundled_helper()[0] is not None, "the fan helper was not bundled"
+assert diskctl.bundled_helper()[0] is not None, "the disk helper was not bundled"
+assert diskentry.render(["x"]), "the right-click entry template was not bundled"
 print("smoke test ok")
 # The sensor worker's threads are still running; this is a check, not a session.
 import os

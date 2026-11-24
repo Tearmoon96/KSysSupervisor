@@ -1436,6 +1436,8 @@ class DeviceTile(Card):
     reset_name_requested = pyqtSignal(str)
     #: The uid of a reading to show in Live Graphs.
     graph_requested = pyqtSignal(str)
+    #: A drive's block device name, to open in the Disk Utility.
+    disk_utility_requested = pyqtSignal(str)
     #: (tile key, name): renamed in place; "" is the hardware's name again.
     name_changed = pyqtSignal(str, str)
     drag_started = pyqtSignal(object)
@@ -1838,6 +1840,17 @@ class DeviceTile(Card):
             graph.setToolTip(tool_tip("graphs", "Show in Live Graphs",
                                       "Open the Live Graphs panel with this "
                                       "reading in it."))
+            menu.addSeparator()
+        if self.key.startswith("disk:"):
+            block = self.key.split(":", 1)[1]
+            utility = add("Disk Utility...",
+                          lambda: self.disk_utility_requested.emit(block), "",
+                          "drive-harddisk")
+            # In the Disk Utility's colour, not the tile's: it is that
+            # tool's action.
+            utility.setToolTip(tool_tip(
+                "disks", "Disk Utility", "Open this drive in the Disk "
+                "Utility: its volumes, its health, and formatting."))
             menu.addSeparator()
         add("Customize Tile...", lambda: self.set_editing(True),
             "Choose what this tile shows and where.", "document-edit")

@@ -85,7 +85,10 @@ def check_compatibility():
                 "Detected kernel: %s" % platform.release())
             sys.exit(EXIT_UNSUPPORTED_PLATFORM)
 
-    if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
+    # A Qt platform named outright (the recovery stick draws straight on the
+    # firmware's screen with 'linuxfb') needs neither X11 nor Wayland.
+    if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY') \
+            and not os.environ.get('QT_QPA_PLATFORM'):
         emergency_notify(
             "No graphical display",
             "KSysSupervisor needs a running X11 or Wayland session, but neither\n"

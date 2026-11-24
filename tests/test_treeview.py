@@ -141,13 +141,26 @@ class MenuTest(TreeTestCase):
         asked = []
         self.tree.rename_requested.connect(asked.append)
         self.tree.clear_bounds_requested.connect(lambda k: asked.append("clear:" + k))
-        menu = self.tree.menu_for(self.tree.topLevelItem(2))
+        menu = self.tree.menu_for(self.tree.topLevelItem(0))
         actions = [a for a in menu.actions() if not a.isSeparator()]
         self.assertEqual([a.text() for a in actions],
                          ["Rename...", "Reset name", "Clear min/max here"])
         actions[0].trigger()
         actions[2].trigger()
-        self.assertEqual(asked, ["disk:sda", "clear:disk:sda"])
+        self.assertEqual(asked, ["cpu", "clear:cpu"])
+
+    def test_a_drive_also_offers_the_disk_utility(self):
+        """By the name the kernel gives the drive, not the tree's own key."""
+        self.sync(sample())
+        asked = []
+        self.tree.disk_utility_requested.connect(asked.append)
+        menu = self.tree.menu_for(self.tree.topLevelItem(2))
+        actions = [a for a in menu.actions() if not a.isSeparator()]
+        self.assertEqual([a.text() for a in actions],
+                         ["Rename...", "Reset name", "Clear min/max here",
+                          "Disk Utility..."])
+        actions[3].trigger()
+        self.assertEqual(asked, ["sda"])
 
 
 class WidthTest(TreeTestCase):

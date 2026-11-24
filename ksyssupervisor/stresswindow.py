@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame,
 from . import APP_NAME, log, series, stress
 from .geometry import fit_on_screen, screen_limits
 from .livegraph import PANEL_WIDTH, LiveGraphPanel, width_after_panel
-from .widgets import THEME_EVENTS, SectionCard, paint_backdrop, tool_tip
+from .widgets import (THEME_EVENTS, SectionCard, WrappedLabel, paint_backdrop,
+                      tool_tip)
 
 
 def _tip(title, text):
@@ -401,12 +402,11 @@ class StressWindow(QWidget):
             "you are watching it."))
         layout.addWidget(self.warn_choice)
 
-        self.disclaimer = QLabel(
+        self.disclaimer = WrappedLabel(
             "<b>Continuing to run a stress test at high temperatures can "
             "permanently damage your hardware.</b> If you choose this, you do "
             "so at your own risk: the author of this software accepts no "
             "responsibility for any damage that results.")
-        self.disclaimer.setWordWrap(True)
         self.disclaimer.setVisible(False)
         self.warn_choice.toggled.connect(self.disclaimer.setVisible)
         layout.addWidget(self.disclaimer)

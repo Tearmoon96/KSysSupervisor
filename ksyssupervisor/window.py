@@ -127,6 +127,7 @@ class KSysSupervisor(QMainWindow):
         self._fan_window = None
         # Same reason as the fan window: parentless, so nothing else owns it.
         self._stress_window = None
+        self._disk_window = None
 
         # The update check; started from app.py once the window is showing.
         self.updates = UpdateManager(self, self.settings)
@@ -171,6 +172,8 @@ class KSysSupervisor(QMainWindow):
             view.order_changed.connect(self._save_order)
         self.tree.graph_requested.connect(self.graph_reading)
         self.board.graph_requested.connect(self.graph_reading)
+        self.tree.disk_utility_requested.connect(self.show_disk_utility)
+        self.board.disk_utility_requested.connect(self.show_disk_utility)
         self.board.config_changed.connect(self.set_tile_config)
         self.board.name_changed.connect(self.set_device_name)
 
@@ -398,6 +401,27 @@ class KSysSupervisor(QMainWindow):
                 "stability, with a temperature limit that stops the test.",
                 TOOL_COLOURS["stress"])
 
+        self.disk_action = tools_menu.addAction(
+            QIcon.fromTheme("drive-harddisk",
+                            QIcon.fromTheme("partitionmanager")),
+            "Disk Utility...")
+        self.disk_action.triggered.connect(lambda: self.show_disk_utility())
+        explain(self.disk_action, "Disk Utility",
+                "Every drive and volume at a glance, with drive health, "
+                "and the tools to format, mount, rename and eject them.",
+                TOOL_COLOURS["disks"])
+
+        self.stick_action = tools_menu.addAction(
+            QIcon.fromTheme("drive-removable-media-usb",
+                            QIcon.fromTheme("media-flash")),
+            "Make a Recovery Stick...")
+        self.stick_action.triggered.connect(self.make_recovery_stick)
+        explain(self.stick_action, "Recovery Stick",
+                "Turn a USB stick into a small system that starts a "
+                "computer straight into the Disk Utility - the way to "
+                "clone or resize the drive a system runs from.",
+                TOOL_COLOURS["disks"])
+
         self.graph_action = tools_menu.addAction(
             QIcon.fromTheme("office-chart-line",
                             QIcon.fromTheme("utilities-system-monitor")),
@@ -556,6 +580,28 @@ class KSysSupervisor(QMainWindow):
         self._stress_window.show()
         self._stress_window.raise_()
         self._stress_window.activateWindow()
+
+    def show_disk_utility(self, device=None):
+        """Open the disk utility, or raise the one already open.
+
+        `device` is a drive or volume to select: a kernel name or a /dev
+        path, from a drive's right-click menu.
+        """
+        from .diskwindow import DiskUtilityWindow
+
+        if self._disk_window is None or self._disk_window.is_finished():
+            self._disk_window = DiskUtilityWindow(self.settings,
+                                                  select=device)
+        elif device:
+            self._disk_window.select_device(device)
+        self._disk_window.show()
+        self._disk_window.raise_()
+        self._disk_window.activateWindow()
+
+    def make_recovery_stick(self):
+        """The Disk Utility, with the recovery stick's dialog open in it."""
+        self.show_disk_utility()
+        self._disk_window.recovery_stick_selected(choose=True)
 
     # ---- live graphs ----------------------------------------------------
 
@@ -1118,9 +1164,10 @@ class KSysSupervisor(QMainWindow):
         self.interval_requested.emit(self._interval_ms)
 
     def close_tools(self):
-        """Stop the stress test and hand the fans back. False if cancelled.
+        """Stop the stress test, hand the fans back and let go of the disk
+        helper. False if cancelled.
 
-        Both questions are asked before anything is torn down: the user may
+        Every question is asked before anything is torn down: the user may
         still cancel, and by then stopping anything would be wrong. Used on
         the way out and before an update replaces the files under them.
         """
@@ -1130,6 +1177,14 @@ class KSysSupervisor(QMainWindow):
         if self._fan_window is not None:
             if not self._fan_window.confirm_shutdown(self):
                 return False
+        if self._disk_window is not None:
+            if not self._disk_window.confirm_shutdown(self):
+                return False
+
+        if self._disk_window is not None:
+            self._disk_window.shutdown()
+            self._disk_window.close()
+            self._disk_window = None
 
         if self._stress_window is not None:
             self._stress_window.shutdown()

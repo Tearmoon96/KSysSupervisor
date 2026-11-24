@@ -38,14 +38,15 @@ Usage: ./install.sh [OPTIONS]
 
 Options:
   --user           Install for the current user only (default as a normal user)
-  --system         Install for all users (default under sudo). Required for
-                   fan control, which needs a root-owned helper.
+  --system         Install for all users (default under sudo). Also installs
+                   the two root-owned helpers, for fan control and for the
+                   disk utility.
   --rebuild-venv   Recreate the Python virtual environment from scratch
-  --fan-control    Install ONLY the fan control helper and its polkit policy,
-                   leaving an existing installation exactly where it is. Use
-                   this to add fan control to a per-user install without
-                   moving it: the app does not have to be system-wide, only
-                   the helper does.
+  --fan-control    Install ONLY the root helpers (fan control and the disk
+                   utility) and their polkit policies, leaving an existing
+                   installation exactly where it is. Use this to add them to
+                   a per-user install without moving it: the app does not
+                   have to be system-wide, only the helpers do.
   --yes            Do not ask before replacing a running copy (used by the
                    in-app updater, which is that running copy)
   --help           Show this message
@@ -71,6 +72,7 @@ elif [ "$INSTALL_MODE" = "system" ]; then
     DESKTOP_DIR="/usr/share/applications"
     ICON_DIR="/usr/share/icons/hicolor/scalable/apps"
     PIXMAP_DIR="/usr/share/pixmaps"
+    SOLID_DIR="/usr/share/solid/actions"
     info "Installing ${BOLD}system-wide${NC}..."
 else
     USER_HOME="${HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}"
@@ -80,6 +82,7 @@ else
     DESKTOP_DIR="$DATA_HOME/applications"
     ICON_DIR="$DATA_HOME/icons/hicolor/scalable/apps"
     PIXMAP_DIR="$DATA_HOME/pixmaps"
+    SOLID_DIR="$DATA_HOME/solid/actions"
     info "Installing ${BOLD}for $(id -un)${NC}..."
 fi
 
@@ -91,6 +94,13 @@ HELPER_DIR="/usr/local/lib/ksyssupervisor"
 HELPER_FILE="$HELPER_DIR/ksyssupervisor-fanhelper"
 POLICY_FILE="/usr/share/polkit-1/actions/org.ksyssupervisor.fancontrol.policy"
 FAN_CONTROL="no"
+
+# The disk utility's helper: same directory, same rules, its own polkit action.
+DISK_HELPER_SRC="$SOURCE_DIR/helpers/ksyssupervisor-diskhelper"
+DISK_POLICY_SRC="$SOURCE_DIR/packaging/org.ksyssupervisor.diskmanager.policy"
+DISK_HELPER_FILE="$HELPER_DIR/ksyssupervisor-diskhelper"
+DISK_POLICY_FILE="/usr/share/polkit-1/actions/org.ksyssupervisor.diskmanager.policy"
+DISK_HELPER="no"
 
 # Names this project used before its first public release. Left in place they
 # would be an orphaned root-owned helper still authorised by an orphaned polkit
@@ -147,13 +157,37 @@ install_fan_control() {
             || warn "polkit has not picked up the new action yet; it will after a reboot."
     fi
 
+    install_disk_helper
+
     if command -v pkexec >/dev/null 2>&1; then
         FAN_CONTROL="yes"
     else
-        warn "Fan control needs 'pkexec', which is not installed."
+        warn "Fan control and the disk utility need 'pkexec', which is not installed."
         echo "         Install polkit: Fedora 'sudo dnf install polkit',"
         echo "         Debian/Ubuntu 'sudo apt install pkexec', Arch 'sudo pacman -S polkit'."
     fi
+    return 0
+}
+
+# The disk utility's helper and policy, installed alongside the fan helper
+# whenever that is. A copy that does not ship them - an older source tree -
+# simply goes without: fan control must not fail over it.
+install_disk_helper() {
+    [ -f "$DISK_HELPER_SRC" ] && [ -f "$DISK_POLICY_SRC" ] || return 0
+
+    info "Installing the disk utility helper and its polkit policy..."
+    python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$DISK_HELPER_SRC" \
+        || die "The disk helper does not parse; refusing to install it as root."
+
+    install -m 0755 -o root -g root "$DISK_HELPER_SRC" "$DISK_HELPER_FILE" \
+        || die "Could not install the disk helper."
+    sed "s|@HELPER_PATH@|$DISK_HELPER_FILE|g" "$DISK_POLICY_SRC" > "$DISK_POLICY_FILE" \
+        || die "Could not install the disk utility's polkit policy."
+    chmod 644 "$DISK_POLICY_FILE"
+    chown root:root "$DISK_POLICY_FILE"
+    grep -q "$DISK_HELPER_FILE" "$DISK_POLICY_FILE" \
+        || die "The polkit policy does not point at $DISK_HELPER_FILE."
+    DISK_HELPER="yes"
     return 0
 }
 
@@ -171,11 +205,15 @@ if [ "$INSTALL_MODE" = "fan-control" ]; then
     [ -f "$POLICY_FILE" ] || die "$POLICY_FILE is missing."
     owner=$(stat -c '%U' "$HELPER_FILE" 2>/dev/null)
     [ "$owner" = "root" ] || die "The helper is owned by '$owner', not root."
+    if [ "$DISK_HELPER" = "yes" ]; then
+        [ -x "$DISK_HELPER_FILE" ] || die "$DISK_HELPER_FILE is not executable."
+        [ -f "$DISK_POLICY_FILE" ] || die "$DISK_POLICY_FILE is missing."
+    fi
 
     echo
-    success "Fan control is installed."
+    success "The helpers for fan control and the disk utility are installed."
     echo "  Your existing installation was not touched."
-    echo "  Open Tools > Fan Control to use it; no restart is needed."
+    echo "  Open Tools > Fan Control or Tools > Disk Utility; no restart is needed."
     exit 0
 fi
 
@@ -269,6 +307,15 @@ cp "$SOURCE_DIR/helpers/ksyssupervisor-fanhelper" "$STAGE/helpers/" \
     || stage_failed "Could not copy the fan helper"
 cp "$SOURCE_DIR/packaging/org.ksyssupervisor.fancontrol.policy" \
     "$STAGE/packaging/" || stage_failed "Could not copy the fan control policy"
+# The same for the disk utility: its helper, its policy, and the template of
+# its right-click entry.
+for extra in helpers/ksyssupervisor-diskhelper \
+             packaging/org.ksyssupervisor.diskmanager.policy \
+             packaging/ksyssupervisor_diskutility.desktop; do
+    [ -f "$SOURCE_DIR/$extra" ] || continue
+    cp "$SOURCE_DIR/$extra" "$STAGE/$(dirname "$extra")/" \
+        || stage_failed "Could not copy $extra"
+done
 
 # Bytecode copied from the source tree belongs to that checkout, not to this
 # install, and a .pyc that outlives the .py it came from can shadow an edit -
@@ -296,6 +343,21 @@ true
 
 VENV_DIR="$INSTALL_DIR/venv"
 [ "$REBUILD_VENV" -eq 1 ] && { info "Rebuilding the virtual environment..."; rm -rf "$VENV_DIR"; }
+
+# A venv belongs to the Python that made it. After the distribution moves to a
+# new Python (3.14 -> 3.15) its interpreter link still works, but the packages
+# installed inside it sit under the old version's folder and are no longer
+# found, so it is made again.
+if [ -x "$VENV_DIR/bin/python3" ] && [ -f "$VENV_DIR/pyvenv.cfg" ]; then
+    VENV_VERSION=$(sed -n 's/^version[_info]* *= *\([0-9]*\.[0-9]*\).*/\1/p' \
+        "$VENV_DIR/pyvenv.cfg" | head -n 1)
+    PYTHON_VERSION=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
+    if [ -n "$VENV_VERSION" ] && [ -n "$PYTHON_VERSION" ] \
+            && [ "$VENV_VERSION" != "$PYTHON_VERSION" ]; then
+        info "Python changed from $VENV_VERSION to $PYTHON_VERSION; making the virtual environment again..."
+        rm -rf "$VENV_DIR"
+    fi
+fi
 
 if [ ! -x "$VENV_DIR/bin/python3" ]; then
     info "Creating the Python virtual environment..."
@@ -361,9 +423,28 @@ Terminal=false
 Categories=System;Monitor;Qt;
 StartupNotify=true
 StartupWMClass=ksyssupervisor
-Keywords=system;monitor;sensors;hardware;cpu;gpu;temperature;voltage;fan;
+Keywords=system;monitor;sensors;hardware;cpu;gpu;temperature;voltage;fan;disk;format;
+Actions=DiskUtility;
+
+[Desktop Action DiskUtility]
+Name=Disk Utility
+Exec=$LAUNCHER_FILE --disk-utility
+Icon=drive-harddisk
 EOF
 chmod 644 "$DESKTOP_FILE"
+
+# "KSysSupervisor Disk Utility" in the right-click menu Plasma shows for a
+# drive or volume - the Places panel in the file manager, the Device Notifier.
+SOLID_SRC="$SOURCE_DIR/packaging/ksyssupervisor_diskutility.desktop"
+SOLID_FILE="$SOLID_DIR/ksyssupervisor_diskutility.desktop"
+if [ -f "$SOLID_SRC" ]; then
+    if mkdir -p "$SOLID_DIR" \
+            && sed "s|@EXEC@|$LAUNCHER_FILE|g" "$SOLID_SRC" > "$SOLID_FILE"; then
+        chmod 644 "$SOLID_FILE"
+    else
+        warn "Could not add the Disk Utility to the drives' right-click menu."
+    fi
+fi
 
 KMENU_FILE="${XDG_CONFIG_HOME:-${USER_HOME:-$HOME}/.config}/menus/applications-kmenuedit.menu"
 if [ -f "$KMENU_FILE" ] && grep -q "ksyssupervisor.desktop" "$KMENU_FILE" 2>/dev/null; then
@@ -375,11 +456,12 @@ fi
 if [ "$INSTALL_MODE" = "system" ]; then
     install_fan_control || true
 else
-    info "Fan control's helper is not installed by a per-user install."
-    echo "         It runs as root, so it must live somewhere you cannot rewrite."
-    echo "         Open Tools > Fan Control and it offers to install just the"
-    echo "         helper, with one password prompt - this installation stays"
-    echo "         where it is. 'sudo ./install.sh --fan-control' does the same."
+    info "The root helpers are not installed by a per-user install."
+    echo "         Fan control and the disk utility each use a small helper that"
+    echo "         runs as root, so it must live somewhere you cannot rewrite."
+    echo "         Open either tool and it offers to install just the helpers,"
+    echo "         with one password prompt - this installation stays where it"
+    echo "         is. 'sudo ./install.sh --fan-control' does the same."
 fi
 
 # ---- caches -----------------------------------------------------------------
@@ -417,6 +499,12 @@ if [ "$FAN_CONTROL" = "yes" ]; then
     owner=$(stat -c '%U' "$HELPER_FILE" 2>/dev/null)
     [ "$owner" = "root" ] || PROBLEMS+=("the fan helper is owned by '$owner', not root")
 fi
+if [ "$DISK_HELPER" = "yes" ]; then
+    [ -x "$DISK_HELPER_FILE" ] || PROBLEMS+=("$DISK_HELPER_FILE is not executable")
+    [ -f "$DISK_POLICY_FILE" ] || PROBLEMS+=("$DISK_POLICY_FILE is missing")
+    owner=$(stat -c '%U' "$DISK_HELPER_FILE" 2>/dev/null)
+    [ "$owner" = "root" ] || PROBLEMS+=("the disk helper is owned by '$owner', not root")
+fi
 
 if [ ${#PROBLEMS[@]} -gt 0 ]; then
     error "The installation finished with problems:"
@@ -433,6 +521,10 @@ if [ "$FAN_CONTROL" = "yes" ]; then
     echo -e "  ${BOLD}Fan control:${NC} enabled, under Tools > Fan Control."
     echo "               Fans go back to automatic when KSysSupervisor exits,"
     echo "               including if it crashes, unless you ask otherwise."
+fi
+if [ "$DISK_HELPER" = "yes" ]; then
+    echo -e "  ${BOLD}Disk utility:${NC} ready, under Tools > Disk Utility and in the"
+    echo "               right-click menu of a drive in the file manager."
 fi
 
 if [ "$INSTALL_MODE" = "user" ] && [[ ":${PATH:-}:" != *":$BIN_DIR:"* ]]; then
